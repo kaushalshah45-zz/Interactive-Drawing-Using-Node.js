@@ -1,0 +1,183 @@
+<!doctype html>
+<html>
+<head>
+
+<title>Interactive Drawing</title>
+
+<script src="http://code.jquery.com/jquery-1.11.1.js"></script>
+<script src="https://cdn.socket.io/socket.io-1.2.0.js"></script>
+
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font: 13px Helvetica, Arial; }
+form { position: fixed; bottom: 0; width: 100%; }
+form input {   border: solid black 1px; padding: 10px; width: 15%; margin-left: 81%;  }
+form button { width: 4%; background: rgb(130, 224, 255); border: none; padding: 10px; float:right; }
+#messages { list-style-type: none; margin-left: 81%; padding: 0; position: absolute; border:2px;}
+#messages li { padding: 5px 10px; }
+.vr { width:1px;  background-color:#000;  position:absolute;  top:0;  bottom:0; margin-left:81%;}
+h1 {background: rgb(130, 224, 255); width:81%; text-align: center; color: blue;}    
+      
+</style>
+</head>
+
+<body>
+    
+<div class = "msg">
+<ul id="messages"></ul>
+</div>
+
+<h1 id = "header"></h1>
+
+<div class="vr">&nbsp;
+</div>
+
+<div id="canvasDiv">
+</div>
+     
+<form action="">
+<input id="m" autocomplete="off" placeholder = "Chat Here"/><button>Send</button>
+</form>
+
+<script> 
+        
+var name = " ";
+var stroke = '#'+Math.random().toString(16).substr(-6);    //generate a random color for each client
+$(document).ready(function() {                            
+        
+name = window.prompt("Enter your Name", "Name");         //name for chatting
+$("#header").text('Draw and Have Fun !!');               //load the head 
+        
+  if(name == 'Name')
+    name = 'Anonymous';
+  prepareCanvas();
+});
+      
+var socket = io();                                         //make a connection to the server
+$('form').submit(function(){
+  socket.emit('chat', {'msg':$('#m').val(), 'name':name}); //emit chat messages on pressing the send button
+    $('#m').val('');                                
+    return false;
+});
+
+socket.on('chat', function(data){
+  //on receiving messages from the server append them to the message list along with name of the user who sent it
+  $('#messages').append($('<li>').text(data.name +": " +data.msg)); 
+});
+
+var canvas;
+var context;
+var canvasWidth = 1106;
+var canvasHeight = 608;
+var lineWidth = 8;
+
+
+var clickX = new Array();           //array to store x co-ordinates of the position of the cursor
+var clickY = new Array();           //array to store y co-ordinates of the position of the cursor
+var clickDrag = new Array();        //boolean array to store true if the user is drawing, false if not
+var paint;
+
+function prepareCanvas(){           
+//creating canvas element since all browsers don't support HTML5 canvas element  
+var canvasDiv = document.getElementById('canvasDiv');
+canvas = document.createElement('canvas');
+canvas.setAttribute('width', canvasWidth);
+canvas.setAttribute('height', canvasHeight);
+canvas.setAttribute('id', 'canvas');
+canvasDiv.appendChild(canvas);
+if(typeof G_vmlCanvasManager != 'undefined') {
+  canvas = G_vmlCanvasManager.initElement(canvas);
+}
+context = canvas.getContext("2d");
+$('#canvas').css('background-color','rgb(130, 224, 255)');
+
+$('#canvas').mousedown(function(e){          //capture event when the user presses the mouse button
+    
+  paint = true;
+  addClick(e.pageX - this.offsetLeft, e.pageY - this.offsetTop); //pass the x y and co-ordinate of the click to draw on canvas  
+  redraw();
+  socket.emit('move', {                            //on each click send the x and y co-ordinates of the click to the server
+      'x':e.pageX - this.offsetLeft,               //passing x co-ordinate to server
+      'y':e.pageY - this.offsetTop,                //passing y co-ordinate to server
+      'paint':paint,                               //passing boolean indicating if the user is drawing or not
+      'str':stroke                                 //passing the color of the current user 
+    });
+});
+
+$('#canvas').mousemove(function(e){         //capture event when the user moves the mouse 
+  if(paint){
+    addClick(e.pageX - this.offsetLeft, e.pageY - this.offsetTop, true); //pass the x y and co-ordinate of the click to draw on canvas
+    redraw();    
+    socket.emit('move', {        //every time user moves the mouse send the x and y co-ordinates of the new position to the server
+      'x':e.pageX - this.offsetLeft,  //send x co-ordinate of the new position
+      'y':e.pageY - this.offsetTop,   //send y co-ordinate of the new position
+      'paint':paint,                  //passing boolean indicating if the user is drawing or not       
+      'str':stroke                    //passing the color of the current user 
+    });
+  }
+});
+
+$('#canvas').mouseup(function(e){       //capture event when the user releases the mouse button
+  paint = false;
+  socket.emit('move', {                 //whenever a user releases the mouse button send the x and y co-ordinates of that location
+      'x':e.pageX - this.offsetLeft,    //pass x co-ordinate of the mouse relase location
+      'y':e.pageY - this.offsetTop,     //pass y co-ordinate of the mouse relase location
+      'paint':paint,                    //passing boolean indicating if the user is drawing or not
+      'str':stroke                      //passing the color of the current user 
+  });
+  });
+
+$('#canvas').mouseleave(function(e){    //capture event when the user moves the mouse outside of the canvas
+  paint = false;
+});
+
+socket.on('move', function(data){          //receiving data from the server
+
+
+  addClick(data.x, data.y, data.paint);    //pass the received a and y co-ordinates to draw on the canvas
+  var tempStroke = stroke;                 //save the current color
+  stroke = data.str;                       //set color to that of the received data
+  redraw();                                //paint using the new color
+  stroke = tempStroke;                     //set color back to the original
+});
+
+}
+
+//this function stores the x and y co-ordinates of the cursor and a boolean indicating if the user is drawing or not into the arrays defined previously
+function addClick(x, y, dragging)          
+{
+  clickX.push(x);
+  clickY.push(y);
+  clickDrag.push(dragging);
+}
+
+//this is the main function that paints on the canvas using locations from the arrays defined previously after the addClick //function populates those arrays
+function redraw(){
+  
+  
+  context.strokeStyle = stroke;                  //set the color of the stroke
+  context.lineJoin = "round";
+  context.lineWidth = 5;                         //set the width of the strokes
+      
+  //the main drawing happens in the following loop    
+  for(var i=0; i < clickX.length; i++) {    
+    context.beginPath();
+    if(clickDrag[i] && i){
+      context.moveTo(clickX[i-1], clickY[i-1]);
+     }
+     else{
+       context.moveTo(clickX[i]-1, clickY[i]);
+     }
+     context.lineTo(clickX[i], clickY[i]);
+     context.closePath();
+     context.stroke();
+  }
+  //empty the array once the canvas has been painted to avoid memory overflow
+  clickX.length = 0;
+  clickY.length = 0;
+  clickDrag.length = 0;
+}    
+</script>
+
+</body>
+</html>
